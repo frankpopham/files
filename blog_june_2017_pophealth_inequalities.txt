@@ -1,0 +1,220 @@
+*Frank Popham  14/06/2017
+*Windows Stata 14.2 - not tested on any other version nor Mac etc.
+*Open access licence CC BY 4.0 - https://creativecommons.org/licenses/by/4.0/ & https://creativecommons.org/licenses/by/4.0/legalcode
+
+*Stata do file to replicate analysis originally included in blog post of 14/06/2017 
+*PLEASE READ THROUGH BEFORE RUNNING
+*Please be aware that for this to run you need to download data (details below) from the Human Mortality Database 
+
+*This will clear your current Stata so make sure you save before running.
+clear all
+
+*I use the following user written programmes in my code. Please be aware you'll being   installing  these.
+ssc install dsconcat, replace // (dsconcat is written by  Roger Newson, Imperial College London, UK)
+ssc install fre, replace // (Jann, B. (2007). fre: Stata module to display one-way frequency table. Available from http://ideas.repec.org/c/boc/bocode/s456835.html.)
+
+
+
+
+
+set more off
+*Create annd Choose the directory where you will  place the HMD zip file (see below)
+cd hmd_change\
+
+
+*From the HMD I downloaded period life tables  for men and women combined from http://www.mortality.org/cgi-bin/hmd/hmd_download.php (file name  lt_both.zip)
+*I then unzipped the downloaded file
+unzipfile lt_both.zip, replace
+*we are going to work with 5 years le and life tables by single year so use this folder
+cd bltper_1x5\
+*using all countries - sco, eandw and ni rather than UK and using total pop rather civilian. New Zealand & France also using total pop. West germany becomes (wde) and East Germany (ede) and drop unified Germany
+
+
+!rename DEUTE.bltper_1x5.txt EDE.bltper_1x5.txt
+!rename DEUTW.bltper_1x5.txt WDE.bltper_1x5.txt
+erase DEUTNP.bltper_1x5.txt
+erase FRACNP.bltper_1x5.txt
+!rename FRATNP.bltper_1x5.txt FRA.bltper_1x5.txt
+!rename GBR_NIR.bltper_1x5.txt NIR.bltper_1x5.txt
+!rename GBR_SCO.bltper_1x5.txt SCO.bltper_1x5.txt
+!rename GBRTENW.bltper_1x5.txt ENW.bltper_1x5.txt
+erase GBRCENW.bltper_1x5.txt
+erase GBR_NP.bltper_1x5.txt
+erase NZL_MA.bltper_1x5.txt
+erase NZL_NM.bltper_1x5.txt
+!rename NZL_NP.bltper_1x5.txt NZL.bltper_1x5.txt
+
+
+*this imports the HMD text files into Stata and saves them as Stata files
+local files: dir "." files  "*.txt", respectcase
+di `files'
+foreach file of local files {
+infix str year 1-10 str age 11-22 double mx 23-31  double qx 32-40 double ax 41-46 double lx 47-54 double dx 55-62 double Lx 63-70 double tx 71-79 double ex 80-90 in 4/L using `file', clear 
+gen order = _n
+gen filename="`file'"    
+gen country=substr(filename,1,3)
+assert age[1]=="0"
+assert ax[4]==0.5 
+assert ax[108]==0.5
+assert lx[1]==100000
+bysort year (order): assert _N==111
+sort order
+save `file'.dta, replace    
+clear all
+}
+
+
+*this combines the stata files and graph ex by year and country to check all seems right, and that there are no missing data
+local files: dir "." files  "*.dta", respectcase
+di `files'
+dsconcat `files'
+replace age="110" if age =="110+"
+destring age, replace 
+encode country, gen (country2)
+isid country2 year age
+encode year, gen(year2)
+scatter ex year2 if age ==0, by(country2)
+assert  ex!=. // no missing
+assert age ==110 if ax > 1 
+sum age-ex
+gen test = tx / lx
+scatter ex test
+sort test
+drop test
+
+
+fre year2, all
+
+*deletes anything earlier than 1950
+drop if year2 < 54
+
+
+*gets rid of any non 5 year data period, probably a better way to do this
+gen year_start = substr(year,1,4)
+destring year_start, replace
+gen year_end = substr(year,6,4)
+destring year_end, replace
+gen year_diff = year_end-year_start
+keep if year_diff==4
+drop year_diff year_end year_start
+decode year2, gen(year3)
+encode year3, gen(year4)
+drop year year year2 year3 
+rename year4 year
+drop country
+rename country2 country
+
+
+gsort country year -age, gen(tempage)
+sort country year age
+
+
+
+*eddager (our measure of inequality using eq 2b in this paper  - http://link.springer.com/article/10.1007%2Fs13524-011-0015-6)
+
+
+bysort country year  (age): gen edagcomp  = ((1-ax)+ex[_n+1])*dx if age < 110
+bysort country year  (tempage): gen edagger = (1/lx)*(sum(edagcomp)) if age < 110
+
+
+
+*because I want to show how edagger can be calculated an alternative way, I redo le etc. below
+
+rename ex old_ex
+rename edagcomp old_edagcomp
+rename edagger old_edagger
+drop  qx lx dx Lx tx
+
+
+bysort country year (age): gen double qx = mx/(1+(1-ax)*mx) if age < 110
+bysort country year (age): replace qx = 1 if age == 110
+
+**lx 
+bysort country year (age): gen double lx = 100000 if age == 0
+bysort country year (age): replace lx = lx[_n-1]*(1-qx[_n-1]) if age > 0 & age < .
+
+**dx
+bysort country year (age): gen double dx = lx-lx[_n+1] if age < 110
+bysort country year (age): replace dx = lx if age ==110
+
+**Lx
+bysort country year (age): gen double Lx = lx[_n+1] + dx*ax if age < 110
+bysort country year (age): replace Lx = lx*ax if age == 110
+
+**TX
+ 
+bysort country year (tempage): gen double tx = sum(Lx) 
+
+**ex
+bysort country year (age):gen double ex = tx / lx
+
+
+
+bysort country year  (age): gen double edagcomp  = ((1-ax)+ex[_n+1])*dx if age < 110
+bysort country year  (tempage): gen double edagger = (1/lx)*(sum(edagcomp)) if age < 110
+
+
+
+*I can get the same edagger result (at age0) using the code below that replaces the mortality rates in sequence as 0, so that edagger is also life expectancy that could be gained. 
+
+
+ forvalues i = 0(1)110 { 
+**qx
+gen double mx2 = mx
+
+replace mx2=0 if age == `i'
+
+bysort country year (age): gen double qx2 = mx2/(1+(1-ax)*mx2) if age < 110
+bysort country year (age): replace qx2 = 1 if age == 110
+
+**lx 
+bysort country year (age): gen double lx2 = 100000 if age == 0
+bysort country year (age): replace lx2 = lx2[_n-1]*(1-qx2[_n-1]) if age > 0 & age < .
+
+**dx
+bysort country year (age): gen double dx2 = lx2-lx2[_n+1] if age < 110
+bysort country year (age): replace dx2 = lx2 if age ==110
+
+**Lx
+bysort country year (age): gen double Lx2 = lx2[_n+1] + dx2*ax if age < 110
+bysort country year (age): replace Lx2 = lx2*ax if age == 110
+
+**TX
+ 
+bysort country year (tempage): gen double tx2 = sum(Lx2) 
+
+**ex
+bysort country year (age):gen double ex`i' = tx2 / lx2
+
+local j = `i'+1
+
+bysort country year (age): gen double diff_ex`i' = ex`i'-ex if age==0
+
+
+drop mx2 qx2 lx2 dx2 Lx2 tx2 ex`i'
+}
+
+keep if age==0
+egen double diff_ex=rowtotal(diff_ex0-diff_ex110)
+drop diff_ex0-diff_ex110
+scatter edagger diff_ex
+regress edagger diff_ex
+
+*some analysis for blog
+
+xtset country year
+sort country year
+scatter ex edagger, xtitle("Inequality (average years of life lost per death)") ytitle("Life expectancy") 
+graph export figure1.png, replace
+
+scatter S.ex S.edagger, xtitle("Change in inequality (average years of life lost per death)") ytitle("Change in life expectancy") 
+graph export figure2.png, replace
+
+scatter S.ex S.edagger if inrange(S.edagger,-1,1), xline(0) yline(0) xtitle("Change in inequality (average years of life lost per death)") ytitle("Change in life expectancy")
+graph export figure3.png, replace
+
+
+
+
+
+
