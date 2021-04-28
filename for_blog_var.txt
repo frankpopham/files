@@ -1,0 +1,33 @@
+*Frank Popham - 14/12/2017 
+*contact frank.popham@glasgow.ac.uk
+*this syntax is licencsed under CC_BY 4.0 
+*https://creativecommons.org/licenses/by/4.0/
+
+
+*grouped data
+*Data is in Stata format 
+use http://www.stata-press.com/data/r14/dollhill3, clear
+*poisson (should really use robust se)
+poisson deaths i.smokes i.agecat,exposure(pyears) irr
+predict n
+
+*logistic (need to use glm and do own calculation of pseudo r2)
+glm deaths i.agecat i.smokes, family(binomial pyears) eform
+scalar F = `e(ll)'
+glm deaths,  family(binomial pyears) eform
+di 1 - F / e(ll)
+
+*convert to individual level
+gen alive = pyears - deaths
+expand 2, gen(dead)
+gen weight = deaths if dead==1
+replace weight = alive if dead==0
+expand weight
+
+*poisson (again should really be robust se)
+poisson dead i.smokes i.agecat, irr
+*logistic
+logit dead i.smokes i.agecat, or
+
+
+
