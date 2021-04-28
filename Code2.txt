@@ -1,0 +1,882 @@
+#Etaine
+#New Labour project
+#2018
+
+
+##Data:
+      ##  socio-economic indicators from the World Bank including: GDP per capita, Inflation, Savings rate, CO2 emissions per capita, Population growth, Electricity per capita, Tertiary education enrollment rate, FDI inflows and Imports, Exports, Military expenditure and National expenditure as percentage of GDP
+      ## Gini coefficient from the World Income Inequality Database
+      ## lifetables from the Human Mortality Database to construct lifespan variation  (total population)
+      ##  infant mortality rate and life expectancy from the Human Mortality Database (total population)
+      
+
+##Create lifespan variation variable
+#Lifespan variation function, based on Spreadsheet for calculation of life-table dispersion measures, Shkolnikov, V. M., Andreev, E. M. 2014
+
+library(dplyr)
+dplyr::lag 
+
+eDagger <- function (dx, LL, ex, lx) { 
+  l <- length(ex)
+  first <- (sum(dx[-l] * LL[-l], na.rm=T))
+  second <- first + (0.5 * ex[l] * lx[l])
+  result <- second/lx[1]
+  print(result)
+} #Lifespan variation function
+
+UK <- read.csv("LifetableEnglandWales.csv")
+UK<- subset(UK, Year > 1986 |Year < 2013)
+UK$LL <- lead( UK$ex, k=1) + (1 -  UK$ax)
+
+UK$Year <- as.factor( UK$Year); UK$lx <- as.numeric( UK$lx); UK$dx <- as.numeric( UK$dx); UK$Lx <- as.numeric( UK$Lx)
+grp.year <- group_by( UK,Year) 
+LIFEVARv6.T <- summarize(grp.year, 
+                    eDagger(dx, LL, ex, lx)) #repeat for each country of the pool
+
+
+        ##Synthetic Control Method
+
+#Intervention year 2003
+#Country pool reduced to Gini coefficient superior to 27
+library(Synth)
+d <- read.csv("New Labour reduced.csv")
+d$Country <- as.character(d$Country)
+      ##Total population lifespan variation
+par(mfrow=c(2,2)) 
+
+#2003
+dataprep.out1 <- dataprep(
+  foo = d,
+  predictors= c("SCHOOLter"),
+  dependent     = "LIFEVARv6.T",
+  special.predictors = list(    
+    list("loggini", 2003, "mean"),
+    list("CO2cap", 1996, "mean"),
+    list("logGDP", 1987, "mean"),
+    list("LIFEVARv6.T", 1987:1990, "mean"),
+    list("LIFEVARv6.T", 1993, "mean"),
+    list("LIFEVARv6.T", 1994, "mean"),
+    list("LIFEVARv6.T", 1995:2003, c("mean"))),
+  unit.variable = 2, 
+  time.variable = 5, 
+  treatment.identifier = unique(d$index)[5], #GBR
+  controls.identifier = unique(d$index)[-5], 
+  time.predictors.prior = 1987:2003,
+  time.optimize.ssr = 1987:2003,
+  unit.names.variable = "Country", 
+  time.plot = 1987:2012
+)
+synth.out1 <- synth(data.prep.obj = dataprep.out1, Margin.ipop=.005,Sigf.ipop=7,Bound.ipop=6) 
+
+#weights table
+synth.tables1 <- synth.tab(dataprep.res = dataprep.out1,synth.res = synth.out1); synth.tables1
+gap1 <- dataprep.out1$Y1-(dataprep.out1$Y0%*%synth.out1$solution.w) #store values
+
+#Trends plot
+synthY0.1 <- (dataprep.out1$Y0%*%synth.out1$solution.w)
+
+plot(1987:2012,dataprep.out1$Y1plot,
+           type="l",ylim=c(8.5,13),col="black",lty="solid", ylab ="Lifespan variation", xlab ="Year", xaxs = "i", yaxs = "i", lwd=2,
+           main= "a. Trends in lifespan variation in \n England & Wales and synthetic control", cex.main=1)
+lines(1987:2012,synthY0.1,col="BLACK",lty="dashed",lwd=2)
+abline(v=2003,lty="dotted")
+arrows(2002,y0 = 12.5,2003,y1=12.5,col="black",length=.05)
+legend(x="bottomright", legend=c("England","synthetic England"),lty=c("solid","dashed"),col=c("black","black"),cex=.8,bg="white",lwd=c(2,2))
+text(2000,12.5,"2003")
+
+#gaps plot 
+gaps.plot(synth.res = synth.out1, dataprep.res = dataprep.out1,Ylim=c(-1,1),  
+  Main = c("b. Gaps: Treated - Synthetic"), Ylab=c("Gap in lifespan variation (years)"))
+                
+          ##Robustness checks
+
+
+#Extra predictors
+dataprep.outc <- dataprep(
+  foo = d,
+  predictors= c("SCHOOLter", "FDIinflows", "FDIoutflows", "Savings","Militaryexp", "Inflation", "Exports", "Popgrowth"),
+  dependent     = "LIFEVARv6.T",
+  special.predictors = list(    
+    list("loggini", 2003, "mean"),
+    list("CO2cap", 1996, "mean"),
+    list("logGDP", 1987, "mean"),
+    list("LIFEVARv6.T", 1987:1990, "mean"),
+    list("LIFEVARv6.T", 1993, "mean"),
+    list("LIFEVARv6.T", 1994, "mean"),
+    list("LIFEVARv6.T", 1995:2003, c("mean"))),
+  unit.variable = 2, 
+  time.variable = 5,  
+  treatment.identifier = unique(d$index)[5], #GBR
+  controls.identifier = unique(d$index)[-5],
+  
+  time.predictors.prior = 1987:2003,
+  time.optimize.ssr = 1987:2003,
+  unit.names.variable = "Country", 
+  time.plot = 1987:2012
+)
+synth.outc <- synth(data.prep.obj = dataprep.outc, Margin.ipop=.005,Sigf.ipop=7,Bound.ipop=6)
+
+#Weights table
+synth.tablesc <- synth.tab(dataprep.res = dataprep.outc,synth.res = synth.outc); synth.tablesc
+
+#plot
+synthY0.c <- (dataprep.outc$Y0%*%synth.outc$solution.w)
+
+plot(1987:2012,dataprep.outc$Y1plot,
+           type="l",ylim=c(8.5,13),col="black",lty="solid", ylab ="Lifespan variation", 
+           xlab ="Year", xaxs = "i", yaxs = "i", lwd=2,main= "c. Extra predictors", cex.main=1)
+lines(1987:2012,synthY0.c,col="BLACK",lty="dashed",lwd=2)
+abline(v=2003,lty="dotted")
+legend(x="bottomright", legend=c("England","synthetic England"),lty=c("solid","dashed"),col=c("black","black"),cex=.8,bg="white",lwd=c(2,2))
+arrows(2002,y0 = 12.5,2003,y1=12.5,col="black",length=.05)
+text(2000,12.5,"2003")
+
+#In place placebo: replace the UK with the other donor pool countries.
+# loop across control units
+storegaps <- 
+  matrix(NA,
+         length(1987:2012),
+         length(unique(d$index))-1
+  )
+dim(storegaps)
+storesynthY0 <- 
+  matrix(NA,
+         length(1987:2012),
+         length(unique(d$index))-1
+  )
+dim(storesynthY0)
+
+rownames(storesynthY0) <- 1987:2012
+rownames(storegaps) <- 1987:2012
+i <- 1
+co <- unique(d$index)
+#11 countries in the donor pool
+for(k in unique(d$index)[-5]){
+  
+  # data prep
+  dataprep.out <-
+    dataprep(
+      foo = d,
+      predictors= c("SCHOOLter"),
+      dependent     = "LIFEVARv6.T",
+      special.predictors = list(    
+        list("loggini", 2003, "mean"),
+        list("CO2cap", 1996, "mean"),
+        list("logGDP", 1987, "mean"),
+        list("LIFEVARv6.T", 1987:1990, "mean"),
+        list("LIFEVARv6.T", 1993, "mean"),
+        list("LIFEVARv6.T", 1994, "mean"),
+        list("LIFEVARv6.T", 1995:2003, c("mean"))),
+      unit.variable = 2, 
+      time.variable = 5, 
+      treatment.identifier = k,
+      controls.identifier = co[-which(co==k)],
+      time.predictors.prior = 1987:2003,
+      time.optimize.ssr = 1987:2003,
+      unit.names.variable = "Country",
+      time.plot = 1987:2012
+    )
+  # fit model
+  synth.out <-synth(
+    data.prep.obj=dataprep.out,
+    Margin.ipop=.005,Sigf.ipop=7,Bound.ipop=6)
+  
+  storesynthY0[,i] <-     (dataprep.out$Y0%*%synth.out$solution.w)
+  
+  storegaps[,i] <-  
+    dataprep.out$Y1-
+    (dataprep.out$Y0%*%synth.out$solution.w)
+  i <- i + 1
+} # close loop over control units
+d2 <- d[order(d$index,d$YEAR),]
+colnames(storegaps) <- unique(d2$Country)[-11]
+colnames(storesynthY0) <- unique(d2$Country)[-11]
+unique(d2$index)[-11]
+storegaps <- cbind(gap,storegaps)
+storesynthY0 <- cbind(synthY0.1, storesynthY0)
+colnames(storegaps)[1] <- c("England & Wales")
+colnames(storesynthY0)[1] <- c("England & Wales")
+
+write.csv(storegaps, "Placebo lifevar gaps.csv")
+
+placebo1 <- read.csv("Placebo lifevar gaps.csv")
+
+#plot 
+plot(1987:2012,gap1,
+           type="l",col="black",lty="solid", 
+           ylab ="gap in Lifespan variation",ylim=c(-1.5,1.5), xlab ="Year", xaxs = "i",
+           yaxs = "i", lwd=2,
+           main= "d. In-space Placebo test", cex.main=1)
+lines(1987:2012, placebo1$Australia, col="grey",lwd=1)
+lines(1987:2012, placebo1$France, col="grey",lwd=1)
+lines(1987:2012, placebo1$Greece, col="grey",lwd=1)
+lines(1987:2012, placebo1$Israel, col="grey",lwd=1)
+lines(1987:2012, placebo1$Italy, col="grey",lwd=1)
+lines(1987:2012, placebo1$Japan, col="grey",lwd=1)
+lines(1987:2012, placebo1$New.Zealand, col="grey",lwd=1)
+lines(1987:2012, placebo1$Portugal, col="grey",lwd=1)
+lines(1987:2012, placebo1$Spain, col="grey",lwd=1)
+lines(1987:2012, placebo1$Switzerland, col="grey",lwd=1)
+lines(1987:2012, placebo1$United.States, col="grey",lwd=1)
+
+
+      ## Outcome variable: infant mortality rate
+
+dataprep.out2 <- dataprep(
+  foo = d,
+  predictors= c("CO2cap"),
+  dependent     = "Inf.Mort.rate",
+  special.predictors = list(     
+    list("logGDP", 1987, "mean"),
+    list("loggini", 2003, "mean"),
+    list("Inf.Mort.rate", 1987:1992, "mean"),
+    list("Inf.Mort.rate", 1993:1996, "mean"),
+    list("Inf.Mort.rate", 1999:2003, "mean")),
+  unit.variable = 2, 
+  time.variable = 5, 
+  treatment.identifier = unique(d$index)[5], #GBR
+  controls.identifier = unique(d$index)[-5],
+  time.predictors.prior = 1987:2003,
+  time.optimize.ssr = 1987:2003,
+  unit.names.variable = "Country", 
+  time.plot = 1987:2012
+)
+synth.out2 <- synth(data.prep.obj = dataprep.out2, Margin.ipop=.005,Sigf.ipop=7,Bound.ipop=6)
+gap2 <- dataprep.out2$Y1-(dataprep.out2$Y0%*%synth.out2$solution.w) #
+
+
+#Trends plot
+synthY0.2 <- (dataprep.out2$Y0%*%synth.out2$solution.w)
+
+plot(1987:2012,dataprep.out2$Y1plot,
+           type="l",ylim=c(1, 10),col="black",lty="solid", 
+           ylab ="Infant Mortality Rate", xlab ="Year", xaxs = "i", yaxs = "i", lwd=2,
+           main= "a. Trends in Infant Mortality Rate in \n England & Wales and synthetic control", cex.main=1)
+abline(v=2003,lty="dotted")
+legend(x="bottomright", legend=c("England","synthetic England"),lty=c("solid","dashed"),col=c("black","black"),cex=.8,bg="white",lwd=c(2,2))
+lines(1987:2012,synthY0.2,col="BLACK",lty="dashed",lwd=2)
+arrows(2002,y0 = 9,2003,y1=9,col="black",length=.05)
+text(2000,9,"2003")
+
+gaps.plot(synth.res = synth.out2, dataprep.res = dataprep.out2,Ylim=c(-1,1), 
+                Main ="b. Gaps: Treated - Synthetic", Xlab="Year",   Ylab=c("Gap in infant mortality rate"))
+
+##Robustness check
+
+#Extra predictors test
+dataprep.out2c <- dataprep(
+  foo = d,
+  predictors= c("SCHOOLter", "Savings", "FDIinflows", "Exports", "Imports", "Militaryexp", "Nationalexp", "Electriccap", "Popgrowth", "Inflation"),
+  dependent     = "Inf.Mort.rate",
+  special.predictors = list( 
+    list("CO2cap", 2002, "mean"),
+    list("loggini", 2002, "mean"),
+    list("logGDP", 1987, "mean"),
+    list("logGDP", 2002, "mean"),
+    list("Inf.Mort.rate", 1987:1992, "mean"),
+    list("Inf.Mort.rate", 1993:1996, "mean"),
+    list("Inf.Mort.rate", 1999:2003, "mean")),
+  unit.variable = 2, 
+  time.variable = 5, 
+  treatment.identifier = unique(d$index)[5], #GBR
+  controls.identifier = unique(d$index)[-5],
+  time.predictors.prior = 1987:2003,
+  time.optimize.ssr = 1987:2003,
+  unit.names.variable = "Country", 
+  time.plot = 1987:2012
+)
+synth.out2c <- synth(data.prep.obj = dataprep.out2c, Margin.ipop=.005,Sigf.ipop=7,Bound.ipop=6)
+
+#Weights table
+synth.tables2c <- synth.tab(dataprep.res = dataprep.out2c,synth.res = synth.out2c); synth.tables2c
+#plot
+synthY0.2c <- (dataprep.out2c$Y0%*%synth.out2c$solution.w)
+
+plot(1987:2012,dataprep.out2c$Y1plot,
+           type="l",ylim=c(1, 10),col="black",lty="solid", ylab ="Infant Mortality Rate", 
+           xlab ="Year", xaxs = "i", yaxs = "i", lwd=2,main= "c. Extra predictors", cex.main=1)
+abline(v=2003,lty="dotted")
+legend(x="bottomright", legend=c("England","synthetic England"),lty=c("solid","dashed"),
+       col=c("black","black"),cex=.8,bg="white",lwd=c(2,2))
+lines(1987:2012,synthY0.2b,col="BLACK",lty="dashed",lwd=2)
+arrows(2002,y0 = 9,2003,y1=9,col="black",length=.05)
+text(2000,9,"2003")
+
+
+
+#In-space placebo
+#In place placebo: replace the UK with the other donor pool countries.
+
+# loop across control units
+storegaps <- 
+  matrix(NA,
+         length(1987:2012),
+         length(unique(d$index))-1
+  )
+storesynthY0 <- 
+  matrix(NA,
+         length(1987:2012),
+         length(unique(d$index))-1
+  )
+
+rownames(storesynthY0) <- 1987:2012
+rownames(storegaps) <- 1987:2012
+i <- 1
+co <- unique(d$index)
+unique(d$Country)[-5] 
+#11 countries in the donor pool
+for(k in unique(d$index)[-5]){
+  
+  # data prep
+  dataprep.out <-
+    dataprep(
+      foo = d,
+      predictors= c("SCHOOLter"),
+      dependent     = "Inf.Mort.rate",
+      special.predictors = list( 
+        list("CO2cap", 2002, "mean"),
+        list("loggini", 2002, "mean"),
+        list("logGDP", 1987, "mean"),
+        list("logGDP", 2002, "mean"),
+        list("Inf.Mort.rate", 1987:1992, "mean"),
+        list("Inf.Mort.rate", 1993:1996, "mean"),
+        list("Inf.Mort.rate", 1999:2003, "mean")),
+      unit.variable = 2, 
+      time.variable = 5, 
+      treatment.identifier = k,
+      controls.identifier = co[-which(co==k)],
+      time.predictors.prior = 1987:2003,
+      time.optimize.ssr = 1987:2003,
+      unit.names.variable = "Country",
+      time.plot = 1987:2012
+    )
+  
+  
+  # fit model
+  synth.out <-synth(
+    data.prep.obj=dataprep.out,
+    Margin.ipop=.005,Sigf.ipop=7,Bound.ipop=6)
+  
+  storesynthY0[,i] <-     (dataprep.out$Y0%*%synth.out$solution.w)
+  
+  
+  storegaps[,i] <-  
+    dataprep.out$Y1-
+    (dataprep.out$Y0%*%synth.out$solution.w)
+  i <- i + 1
+} # close loop over control units
+d2 <- d[order(d$index,d$YEAR),]
+colnames(storegaps) <- unique(d2$Country)[-11]
+colnames(storesynthY0) <- unique(d2$Country)[-11]
+unique(d2$Country)[-11]
+storegaps <- cbind(gap,storegaps)
+storesynthY0 <- cbind(synthY0.1, storesynthY0)
+colnames(storegaps)[1] <- c("United Kingdom")
+colnames(storesynthY0)[1] <- c("United Kingdom")
+write.csv(storegaps, "Inf.Mort gaps.csv")
+
+#plot the gaps for all countries
+placebo2 <- read.csv("Inf.Mort gaps.csv")
+colnames(placebo2)[1] <- c("Year")
+
+plot(1987:2012,gap2,
+           type="l",col="black",lty="solid", 
+           ylab ="gap in Infant Mortality Rate",ylim=c(-1.5,1.5), xlab ="Year", xaxs = "i",
+           yaxs = "i", lwd=2,
+           main= "d. In-space Placebo test", cex.main=1)
+lines(1987:2012, placebo2$Australia, col="grey",lwd=1)
+lines(1987:2012, placebo2$France, col="grey",lwd=1)
+lines(1987:2012, placebo2$Greece, col="grey",lwd=1)
+lines(1987:2012, placebo2$Israel, col="grey",lwd=1)
+lines(1987:2012, placebo2$Italy, col="grey",lwd=1)
+lines(1987:2012, placebo2$Japan, col="grey",lwd=1)
+lines(1987:2012, placebo2$New.Zealand, col="grey",lwd=1)
+lines(1987:2012, placebo2$Portugal, col="grey",lwd=1)
+lines(1987:2012, placebo2$Spain, col="grey",lwd=1)
+lines(1987:2012, placebo2$Switzerland, col="grey",lwd=1)
+lines(1987:2012, placebo2$United.States, col="grey",lwd=1)
+abline(h=0, lty="dotted")
+
+
+    ##Outcome variable: Life expectancy
+
+
+#Synth
+dataprep.out3 <- dataprep(
+  foo = d,
+  predictors= c("SCHOOLter"),
+  dependent     = "LIFEXP.T",
+  special.predictors = list( 
+    list("CO2cap", 2002, "mean"),
+    list("loggini", 2003, "mean"),
+    list("logGDP", 1987, "mean"),
+    list("LIFEXP.T", 1987:1992, "mean"),
+    list("LIFEXP.T", 1996:2003, "mean")),
+  unit.variable = 2, 
+  time.variable = 5, 
+  treatment.identifier = unique(d$index)[5], #GBR
+  controls.identifier = unique(d$index)[-5],
+  time.predictors.prior = 1987:2003,
+  time.optimize.ssr = 1987:2003,
+  unit.names.variable = "Country", 
+  time.plot = 1987:2012
+)
+synth.out3 <- synth(data.prep.obj = dataprep.out3, Margin.ipop=.005,Sigf.ipop=7,Bound.ipop=6)
+
+#Weights table
+synth.tables3 <- synth.tab(dataprep.res = dataprep.out3,synth.res = synth.out3); synth.tables3
+#gaps plot
+gap3 <- dataprep.out3$Y1-(dataprep.out3$Y0%*%synth.out3$solution.w) #store values
+
+#Trends plot
+synthY0.3 <- (dataprep.out3$Y0%*%synth.out3$solution.w)
+
+plot(1987:2012,dataprep.out3$Y1plot,
+           type="l",ylim=c(72,85),col="black",lty="solid", ylab ="Life expectancy", 
+           xlab ="Year", xaxs = "i", yaxs = "i", lwd=2,
+           main= "a. Trends in life expectancy in \n England and Wales and synthetic control", cex.main=1)
+lines(1987:2012,synthY0.3,col="BLACK",lty="dashed",lwd=2)
+abline(v=2003,lty="dotted")
+legend(x="bottomright", legend=c("England & Wales","Synthetic"),lty=c("solid","dashed"),col=c("black","black"),cex=.8,bg="white",lwd=c(2,2))
+arrows(2002,y0 = 82,2003,y1=82,col="black",length=.05)
+text(2000,82,"2003")
+
+gaps.plot(synth.res = synth.out3, dataprep.res = dataprep.out3,Ylim=c(-1,1),
+                Main = c("b. Gaps: Treated - Synthetic"), Xlab="Year",   Ylab=c("Gap in infant mortality rate"))
+
+    ##Robustness checks
+
+
+#Extra predictors
+dataprep.out3c <- dataprep(
+  foo = d,
+  predictors= c("SCHOOLter", "CO2cap", "Savings", "Electriccap", "FDIinflows", "FDIoutflows", "Militaryexp", "Nationalexp", "Popgrowth", "Inflation"),
+  dependent     = "LIFEXP.T",
+  special.predictors = list(    
+    list("loggini", 2003, "mean"),
+    list("logGDP", 1987, "mean"),
+    list("LIFEXP.T", 1987:1992, "mean"),
+    list("LIFEXP.T", 1996:2003, "mean")),
+  unit.variable = 2, 
+  time.variable = 5, 
+  treatment.identifier = unique(d$index)[5], #GBR
+  controls.identifier = unique(d$index)[-5], #minus GBR
+  time.predictors.prior = 1987:2003,
+  time.optimize.ssr = 1987:2003,
+  unit.names.variable = "Country", 
+  time.plot = 1987:2012
+)
+synth.out3c <- synth(data.prep.obj = dataprep.out3c, 
+                    Margin.ipop=.005,Sigf.ipop=7,Bound.ipop=6)
+
+plot(1987:2012,dataprep.out3c$Y1plot,
+     type="l",col="black",lty="solid", ylim=c(72,85),
+     ylab ="Life expectancy",
+     xlab ="Year",
+     xaxs = "i", yaxs = "i",
+     lwd=2, main= "c. Extra predictors", cex.main=1
+)
+lines(1987:2012,(dataprep.out3c$Y0%*%synth.out3c$solution.w),col="black",lty="dashed",lwd=2)
+abline(v=2003,lty="dotted")
+legend(x="bottomright",
+       legend=c("England and Wales","synthetic England and Wales")
+       ,lty=c("solid","dashed"),col=c("black","black")
+       ,cex=.6,bg="white",lwd=c(2,2))
+arrows(2002,80,2003,80,col="black",length=.05)
+text(2000,80,"2003")
+
+
+
+#In place placebo: replace the UK with the other donor pool countries.
+
+
+# loop across control units
+storegaps <- 
+  matrix(NA,
+         length(1987:2012),
+         length(unique(d$index))-1
+  )
+dim(storegaps)
+storesynthY0 <- 
+  matrix(NA,
+         length(1987:2012),
+         length(unique(d$index))-1
+  )
+dim(storesynthY0)
+
+rownames(storesynthY0) <- 1987:2012
+rownames(storegaps) <- 1987:2012
+i <- 1
+co <- unique(d$index)
+#11 countries in the donor pool
+for(k in unique(d$index)[-5]){
+  
+  # data prep
+  dataprep.out <-
+    dataprep(
+      foo = d,
+      predictors= c("SCHOOLter"),
+      dependent     = "LIFEXP.T",
+      special.predictors = list(    
+        list("CO2cap", 2002, "mean"),
+        list("loggini", 2003, "mean"),
+        list("logGDP", 1987, "mean"),
+        list("LIFEXP.T", 1987:1992, "mean"),
+        list("LIFEXP.T", 1996:2003, "mean")),
+      unit.variable = 2, 
+      time.variable = 5, 
+      treatment.identifier = k,
+      controls.identifier = co[-which(co==k)],
+      time.predictors.prior = 1987:2003,
+      time.optimize.ssr = 1987:2003,
+      unit.names.variable = "Country",
+      time.plot = 1987:2012
+    )
+  
+  
+  # fit model
+  synth.out <-synth(
+    data.prep.obj=dataprep.out,
+    Margin.ipop=.005,Sigf.ipop=7,Bound.ipop=6)
+  
+  storesynthY0[,i] <-     (dataprep.out$Y0%*%synth.out$solution.w)
+  
+  
+  storegaps[,i] <-  
+    dataprep.out$Y1-
+    (dataprep.out$Y0%*%synth.out$solution.w)
+  i <- i + 1
+} # close loop over control units
+d1 <- d[order(d$index,d$YEAR),]
+colnames(storegaps) <- unique(d1$Country)[-11]
+colnames(storesynthY0) <- unique(d1$Country)[-11]
+unique(d1$index)[-11]
+storegaps <- cbind(gap,storegaps)
+storesynthY0 <- cbind(synthY0.1, storesynthY0)
+colnames(storegaps)[1] <- c("United Kingdom")
+colnames(storesynthY0)[1] <- c("United Kingdom")
+write.csv(storegaps, "Lifexp gaps.csv")
+
+
+#plot the gaps for all countries
+placebo3 <- read.csv("Lifexp gaps.csv")
+
+plot(1987:2012,gap3,
+           type="l",col="black",lty="solid", 
+           ylab ="gap in life expectancy",ylim=c(-1.5,1.5), xlab ="Year", xaxs = "i",
+           yaxs = "i", lwd=2,
+           main= "d. In-space Placebo test", cex.main=1)
+lines(1987:2012, placebo3$Australia, col="grey",lwd=1)
+lines(1987:2012, placebo3$France, col="grey",lwd=1)
+lines(1987:2012, placebo3$Greece, col="grey",lwd=1)
+lines(1987:2012, placebo3$Israel, col="grey",lwd=1)
+lines(1987:2012, placebo3$Italy, col="grey",lwd=1)
+lines(1987:2012, placebo3$Japan, col="grey",lwd=1)
+lines(1987:2012, placebo3$New.Zealand, col="grey",lwd=1)
+lines(1987:2012, placebo3$Portugal, col="grey",lwd=1)
+lines(1987:2012, placebo3$Spain, col="grey",lwd=1)
+lines(1987:2012, placebo3$Switzerland, col="grey",lwd=1)
+lines(1987:2012, placebo3$United.States, col="grey",lwd=1)
+abline(h=0, lty="dotted")
+
+
+##In-time placebos: dynamic graphs
+#Animated graphs: Gapminder inspired by Hans Rosling
+##Note: this requires ImageMagick
+
+library(devtools)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(gganimate)
+library(gapminder)
+library(animation)
+
+#nfant Mortality in-time placebo dynamic graph
+
+###loop: in time placebo, intervention year from 1996 to 1999
+
+storesynthY0 <- # synth control values
+  matrix(NA,
+         length(1987:2012),
+         length((d$YEAR)[12:17])
+  )
+
+rownames(storesynthY0) <- 1987:2012
+i <- 1
+#11 countries in the donor pool
+for(k in (d$YEAR)[12:17]){
+  
+  # data prep
+  dataprep.out <-
+    dataprep(
+      foo = d,
+      predictors= c("CO2cap"),
+      dependent     = "Inf.M.Rate",
+      special.predictors = list(     
+        list("logGDP", 1987, "mean"),
+        list("loggini", k, "mean"),
+        list("Inf.M.Rate", 1987:1992, "mean"),
+        list("Inf.M.Rate", 1993:1995, "mean"),
+        list("Inf.M.Rate", 1996:k, "mean")),
+      unit.variable = 2, 
+      time.variable = 5, 
+      treatment.identifier =  unique(d$index)[5],
+      controls.identifier =  unique(d$index)[-5],
+      time.predictors.prior = 1987:k,
+      time.optimize.ssr = 1987:k,
+      unit.names.variable = "Country",
+      time.plot = 1987:2012
+    )
+  
+  
+  # fit model
+  synth.out <-synth(
+    data.prep.obj=dataprep.out,
+    Margin.ipop=.005,Sigf.ipop=7,Bound.ipop=6)
+  
+  storesynthY0[,i] <-     (dataprep.out$Y0%*%synth.out$solution.w)
+  
+  i <- i + 1
+  
+} # close loop over control units
+
+colnames(storesynthY0) <- c("1996", "1997", "1998", "1999", "2000", "2001")
+write.csv(storesynthY0, "Inf.Mort in-time.csv")
+
+#restructure dataset
+library(reshape2)
+
+placebo <- read.csv("Inf.Mort in-time.csv")
+colnames(placebo)[1] <- "Year"
+placebo <- melt(placebo, id="Year")
+colnames(placebo)[2] <- "Inter.Year"
+colnames(placebo)[3] <- "Inf.Mort.Rate"
+
+GB <- subset(d, d$COUNTRY == "GBR")
+colnames(GB)[5] <- "Year"
+colnames(GB)[13] <- "Inf.Mort.Rate"
+
+#create numeric variable for intervention year
+placebo$Inter <- 0
+placebo$Inter[placebo$Inter.Year == "X1996"] <- 1996
+placebo$Inter[placebo$Inter.Year == "X1997"] <- 1997
+placebo$Inter[placebo$Inter.Year == "X1998"] <- 1998
+placebo$Inter[placebo$Inter.Year == "X1999"] <- 1999
+placebo$Inter[placebo$Inter.Year == "X2000"] <- 2000
+placebo$Inter[placebo$Inter.Year == "X2001"] <- 2001
+
+placebo$Inter <- as.character(placebo$Inter)
+placebo$Inter <- as.numeric(placebo$Inter)
+windowsFonts(AvantGarde=windowsFont("AvantGarde"))
+
+
+##ggplot
+p1 <- ggplot(placebo, aes(x = Year, y =Inf.Mort.Rate, color=Inter.Year)) +
+  geom_path(aes(frame=Inter, cumulative=F), size=1, show.legend = F)+
+  geom_line(data = GB, aes(x = Year, y=Inf.Mort.Rate), color= 1, size=1.5)+
+  geom_line(data = placebo, aes(x = Inter, y=Inf.Mort.Rate, frame=Inter), color= 1, linetype="dashed") +
+  annotate("text", label = "Placebo", x = 2006.5, y = 8, size = 5, colour = 1,
+           family= "AvantGarde", fontface="bold") +
+  geom_segment(aes(x = 2002.5, y = 8, xend = 2001.5, yend = 8),
+               arrow = arrow(length = unit(0.3, "cm")), color=1)+
+  scale_x_continuous("Year",breaks=seq(1987,2012,2)) +
+  ylab("Infant Mortality per 1,000 live births")  +
+  theme(title = element_text(size=20, face="bold"),
+        axis.text= element_text(size=12, family="AvantGarde"),
+        axis.title = element_text(size=14, family="AvantGarde", face="bold")) 
+
+gganimate(p1)
+
+
+gganimate(p1, "in-time placebo Inf.Mort.gif") #save as gif
+
+
+#Similarly for life expectancy
+###loop: in time placebo, intervention year from 1996 to 1999
+
+storesynthY0 <- # synth control values
+  matrix(NA,
+         length(1987:2012),
+         length((d$YEAR)[12:17])
+  )
+
+rownames(storesynthY0) <- 1987:2012
+i <- 1
+#11 countries in the donor pool
+for(k in (d$YEAR)[12:17]){
+  
+  # data prep
+  dataprep.out <-
+    dataprep(
+      foo = d,
+      predictors= c("SCHOOLter"),
+      dependent     = "LIFEXP.T",
+      special.predictors = list(    
+        list("CO2cap", 2002, "mean"),
+        list("loggini", 2003, "mean"),
+        list("logGDP", 1987, "mean"),
+        list("LIFEXP.T", 1987:1992, "mean"),
+        list("LIFEXP.T", 1996:2003, "mean")),
+      unit.variable = 2, 
+      time.variable = 5, 
+      treatment.identifier =  unique(d$index)[5],
+      controls.identifier =  unique(d$index)[-5],
+      time.predictors.prior = 1987:k,
+      time.optimize.ssr = 1987:k,
+      unit.names.variable = "Country",
+      time.plot = 1987:2012
+    )
+  
+  
+  # fit model
+  synth.out <-synth(
+    data.prep.obj=dataprep.out,
+    Margin.ipop=.005,Sigf.ipop=7,Bound.ipop=6)
+  
+  storesynthY0[,i] <-     (dataprep.out$Y0%*%synth.out$solution.w)
+  
+  
+  i <- i + 1
+} # close loop over control units
+
+colnames(storesynthY0) <- c("1996", "1997", "1998", "1999", "2000", "2001")
+write.csv(storesynthY0, "Life exp in-time.csv") 
+
+#restructure dataset so that values are in one column and other variable indicates the intervention year
+library(reshape2)
+
+placebo <- read.csv("Life exp in-time.csv") 
+colnames(placebo)[1] <- "Year"
+placebo <- melt(placebo, id="Year")
+colnames(placebo)[2] <- "Inter.Year"
+colnames(placebo)[3] <- "LIFEXP.T"
+
+#create numeric variable for intervention year
+placebo$Inter <- 0
+placebo$Inter[placebo$Inter.Year == "X1996"] <- 1996
+placebo$Inter[placebo$Inter.Year == "X1997"] <- 1997
+placebo$Inter[placebo$Inter.Year == "X1998"] <- 1998
+placebo$Inter[placebo$Inter.Year == "X1999"] <- 1999
+placebo$Inter[placebo$Inter.Year == "X2000"] <- 2000
+placebo$Inter[placebo$Inter.Year == "X2001"] <- 2001
+
+placebo$Inter <- as.character(placebo$Inter); placebo$Inter <- as.numeric(placebo$Inter)
+
+##ggplot
+
+p2 <- ggplot(placebo, aes(x = Year, y =LIFEXP.T, color=Inter.Year)) +
+  geom_path(aes(frame=Inter, cumulative=F), size=1, show.legend = F)+
+  geom_line(data = GB, aes(x = YEAR, y=LIFEXP.T), color= 1, size=1.5)+
+  geom_line(data = placebo, aes(x = Inter, y=LIFEXP.T, frame=Inter), color= 1, linetype="dashed") +
+  annotate("text", label = "Placebo", x = 2004.5, y = 80, size = 5, colour = 1,
+           family= "AvantGarde", fontface="bold") +
+  geom_segment(aes(x = 2002.5, y = 80, xend = 2001.5, yend = 80),
+               arrow = arrow(length = unit(0.3, "cm")), color=1)+
+  scale_x_continuous("Year",breaks=seq(1987,2012,2)) +
+  ylab("Life expectancy (years)")  +
+  theme(title = element_text(size=20, face="bold"),
+        axis.text= element_text(size=12, family="AvantGarde"),
+        axis.title = element_text(size=14, family="AvantGarde", face="bold")) 
+
+gganimate(p2)
+gganimate(p2, "in-time placebo life Exp.gif") #save as gif
+
+##Similarly for Lifespan Variation
+
+###loop: in time placebo, intervention year from 1996 to 1999
+
+storesynthY0 <- # synth control values
+  matrix(NA,
+         length(1987:2012),
+         length((d$YEAR)[12:17])
+  )
+
+rownames(storesynthY0) <- 1987:2012
+i <- 1
+#11 countries in the donor pool
+for(k in (d$YEAR)[12:17]){
+  
+  # data prep
+  dataprep.out <-
+    dataprep(
+      foo = d,
+      predictors= c("SCHOOLter"),
+      dependent     = "LIFEVARv6.T",
+      special.predictors = list(    
+        list("loggini", 2003, "mean"),
+        list("CO2cap", 1996, "mean"),
+        list("logGDP", 1987, "mean"),
+        list("LIFEVARv6.T", 1987:1990, "mean"),
+        list("LIFEVARv6.T", 1993, "mean"),
+        list("LIFEVARv6.T", 1994, "mean"),
+        list("LIFEVARv6.T", 1995:2003, c("mean"))),
+      unit.variable = 2, 
+      time.variable = 5, 
+      treatment.identifier =  unique(d$index)[5],
+      controls.identifier =  unique(d$index)[-5],
+      time.predictors.prior = 1987:k,
+      time.optimize.ssr = 1987:k,
+      unit.names.variable = "Country",
+      time.plot = 1987:2012
+    )
+  
+  
+  # fit model
+  synth.out <-synth(
+    data.prep.obj=dataprep.out,
+    Margin.ipop=.005,Sigf.ipop=7,Bound.ipop=6)
+  
+  storesynthY0[,i] <-     (dataprep.out$Y0%*%synth.out$solution.w)
+  
+  
+  i <- i + 1
+} # close loop over control units
+
+colnames(storesynthY0) <- c("1996", "1997", "1998", "1999", "2000", "2001")
+
+write.csv(storesynthY0, "Lifespan variation in-time.csv")
+
+#restructure dataset so that values are in one column and other variable indicates the intervention year
+library(reshape2)
+placebo <- read.csv("Lifespan variation in-time.csv")
+colnames(placebo)[1] <- "Year"
+
+placebo <- melt(placebo, id="Year")
+colnames(placebo)[2] <- "Inter.Year"
+colnames(placebo)[3] <- "LIFEVARv6.T"
+
+#create numeric variable for intervention year
+placebo$Inter <- 0
+
+placebo$Inter[placebo$variable == "X1996"] <- 1996
+placebo$Inter[placebo$variable == "X1997"] <- 1997
+placebo$Inter[placebo$variable == "X1998"] <- 1998
+placebo$Inter[placebo$variable == "X1999"] <- 1999
+placebo$Inter[placebo$variable == "X2000"] <- 2000
+placebo$Inter[placebo$variable == "X2001"] <- 2001
+
+placebo$Inter <- as.character(placebo$Inter)
+placebo$Inter <- as.numeric(placebo$Inter)
+
+##ggplot
+
+
+p3 <- ggplot(placebo, aes(x = Year, y =LIFEVARv6.T, color=Inter)) +
+  geom_path(aes(frame=Inter, cumulative=F), size=1, show.legend = F)+
+  geom_line(data = GB, aes(x = Year, y=LIFEVARv6.T), color= 1, size=1.5)+
+  geom_line(data = placebo, aes(x = Inter, y=LIFEVARv6.T, frame=Inter), color= 1, linetype="dashed") +
+  annotate("text", label = "Placebo", x = 2004.5, y = 11.3, size = 5, colour = 1,
+           family= "AvantGarde", fontface="bold") +
+  geom_segment(aes(x = 2002.5, y = 11.3, xend = 2001.5, yend = 11.3),
+               arrow = arrow(length = unit(0.3, "cm")), color=1)+
+  scale_x_continuous("Year",breaks=seq(1987,2012,2)) +
+  ylab("Lifespan variation (years)")  +
+  theme(title = element_text(size=20, face="bold"),
+        axis.text= element_text(size=12, family="AvantGarde"),
+        axis.title = element_text(size=14, family="AvantGarde", face="bold")) 
+
+gganimate(p3)
+
+gganimate(p3, "in-time placebo LV.gif") #save as gif
+
