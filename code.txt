@@ -1,0 +1,60 @@
+library("curl")
+library("RCurl")
+library("tidyverse")
+library("XML")
+library("HMDHFDplus")
+
+countries <- getHMDcountries()
+names(countries) <-countries
+le <- map_df(countries, ~ readHMDweb(., "E0per", "NEED TO ENTER YOUR HMD USER NAME", "AND PASSWORD HERE"), .id="country") %>% 
+filter(!(country %in% c("DEUTE", "DEUTW", "FRACNP", "GBRCENW", "GBRTENW", "GBR_NIR", "GBR_SCO", "NZL_MA", "NZL_NM"))) %>%
+mutate(country=substr(country,1,3))  
+
+#check countries by year
+
+le %>%
+  count(Year, sort=TRUE) %>%
+  filter(Year > 2009) %>%
+ ggplot(aes(Year, n)) +
+  geom_point()
+
+##2013 latest with most
+
+le %>%
+  filter(Year==2013) %>%
+  ggplot(aes(Total, reorder(country, Total))) +
+  geom_point(color="red") +
+  labs(title = "Economic success and failure", subtitle = "2013 - Women and men combined", x="Life expectancy", 
+       y=NULL, caption="Data Source: Human Mortality Database") +
+ scale_x_continuous(breaks=60:85)
+
+
+##2017
+
+le %>%
+  filter(Year==2017) %>%
+  ggplot(aes(Total, reorder(country, Total))) +
+  geom_point(color="red") +
+  labs(title = "Economic success and failure", subtitle = "2017 - Women and men combined", x="Life expectancy", 
+       y=NULL, caption="Data Source: Human Mortality Database") +
+  scale_x_continuous(breaks=60:85)
+
+#Trends UK, US, Leader
+
+le %>% 
+  group_by(Year) %>%
+   arrange(desc(Total)) %>%
+   slice(1) %>%
+ mutate(country="Leader") %>%
+   ungroup() %>%
+  bind_rows(le)  %>%
+  filter(Year>1969 & country=="USA" | Year>1969 & country=="GBR" | Year>1969 & country=="Leader") %>%
+  ggplot(aes(Year, Total, group=country)) +
+  geom_line(aes(color=country)) +
+  labs(title = "Economic success and failure", subtitle = "Women and men combined", y="Life expectancy", 
+       x=NULL, caption="Data Source: Human Mortality Database") +
+  scale_y_continuous(breaks=60:85) +
+  scale_x_continuous(breaks=seq.int(1970, 2017, 5))
+   
+
+
