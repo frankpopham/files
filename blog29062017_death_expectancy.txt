@@ -1,0 +1,110 @@
+
+*Death expectancy
+*Frank Popham  29/06/2017
+*Windows Stata 14.2 - not tested on any other version nor Mac etc.
+*Open access licence CC BY 4.0 - https://creativecommons.org/licenses/by/4.0/ & https://creativecommons.org/licenses/by/4.0/legalcode
+
+*Stata do file to replicate analysis originally included in blog post of 29/06/2017 
+*PLEASE READ THROUGH BEFORE RUNNING
+*Please be aware that for this to run you need to download data (details below) from the Human Mortality Database 
+
+*This will clear your current Stata so make sure you save before running.
+clear all
+
+*I use the following user written programmes in my code. Please be aware you'll being   installing  these.
+ssc install fre, replace // (Jann, B. (2007). fre: Stata module to display one-way frequency table. Available from http://ideas.repec.org/c/boc/bocode/s456835.html.)
+
+
+
+
+
+set more off
+*Create annd Choose the directory where you will  place the HMD zip file (see below)
+cd death_expectancy 
+
+
+*From the HMD I downloaded period life tables  for men and women combined from http://www.mortality.org/cgi-bin/hmd/hmd_download.php (file name  lt_both.zip)
+*I then unzipped the downloaded file
+unzipfile lt_both.zip, replace
+*we are going to work with 1 years le and life tables by single year so use this folder
+cd bltper_1x1  
+
+
+*compare Scotland & England and Wales
+!rename GBR_SCO.bltper_1x1.txt SCO.bltper_1x1.txt
+!rename GBRTENW.bltper_1x1.txt ENW.bltper_1x1.txt
+
+
+infix str year 1-10 str age 11-22 double mx 23-31  double qx 32-40 double ax 41-46 double lx 47-54 double dx 55-62 double Lx 63-70 double tx 71-79 double ex 80-90 in 4/L using SCO.bltper_1x1.txt , clear 
+gen country="SCO"
+gen order = _n
+assert age[1]=="0"
+assert ax[4]==0.5 
+assert ax[108]==0.5
+assert lx[1]==100000
+bysort year (order): assert _N==111
+sort order
+save sco.dta, replace
+
+infix str year 1-10 str age 11-22 double mx 23-31  double qx 32-40 double ax 41-46 double lx 47-54 double dx 55-62 double Lx 63-70 double tx 71-79 double ex 80-90 in 4/L using  ENW.bltper_1x1.txt, clear 
+gen country="ENW"
+gen order = _n
+assert age[1]=="0"
+assert ax[4]==0.5 
+assert ax[108]==0.5
+assert lx[1]==100000
+bysort year (order): assert _N==111
+sort order
+save enw.dta, replace
+
+*limit is the limit of life 
+
+
+dsconcat sco.dta enw.dta  
+destring year, replace
+keep if year > 1949
+fre year
+replace age="110" if age =="110+"
+destring age, replace 
+encode country, gen (country2)
+
+
+
+bysort country2 year (age): gen limit = 111-age
+gen deathx = limit - (tx/lx)
+rename deathx old_deathx
+gen deathx = limit - ex
+gen total = ex+deathx
+
+keep if age==0
+
+line ex year if country2==1 || line ex year if country2==2, legend(label(1 "England and Wales") label(2 "Scotland")) ytitle("Life expectancy") xtitle("Year") xscale(range(1950 2010)) xlabel(1950(10)2010)
+graph export figure1.png, replace
+
+line deathx year if country2==1 || line deathx year if country2==2, , legend(label(1 "England and Wales") label(2 "Scotland")) ytitle("Death expectancy") xtitle("Year") xscale(range(1950 2010)) xlabel(1950(10)2010)
+graph export figure2.png, replace
+
+bysort year (country2): gen diff_ex = ex[1]-ex[2]
+bysort year (country2): gen diff_deathx = deathx[1]-deathx[2]
+bysort year (country2): gen rr_ex = ex[1]/ex[2]
+bysort year (country2): gen rr_deathx = deathx[1] / deathx[2]
+bysort year (country2): gen rr2_deathx = deathx[2] / deathx[1]
+gen odds= ex / deathx
+gen odds2= deathx / ex
+bysort year (country2): gen odds3 = odds[1] / odds[2]
+bysort year (country2): gen odds4 = odds2[1] / odds2[2]
+
+
+
+line diff_ex diff_deathx year, legend(label(1 "Diff in life expectancy") label(2 "Diff in death expectancy")) ytitle("EandW's advantage in years") xtitle("Year") yscale(range(-2.76 2.76)) ylabel(-2(1)2) ///
+xscale(range(1950 2010)) xlabel(1950(10)2010) yline(0)
+graph export figure3.png, replace
+
+line rr_ex rr_deathx year, legend(label(1 "Life expectancy") label(2 "Death expectancy")) ytitle("EandW's relative advantage") xtitle("Year") yscale(range(0.92 1.06)) ylabel(0.92(.02)1.06) /// 
+xscale(range(1950 2010)) xlabel(1950(10)2010) yline(1)
+graph export figure4.png, replace
+
+line odds3 odds4 year, legend(label(1 "Odds LE / DE") label(2 "Odds DE / LE")) ytitle("Odds ratio- EandW's relative advantage") xtitle("Year") yscale(range(0.90 1.11)) ylabel(0.90(.05)1.10) /// 
+xscale(range(1950 2010)) xlabel(1950(10)2010) yline(1)
+graph export figure5.png, replace
+
