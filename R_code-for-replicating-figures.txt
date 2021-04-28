@@ -1,0 +1,67 @@
+library(tidyverse)
+library(ggdag)
+library(ggpubr)
+
+theme_set(theme_dag())
+coords <- list(x = c(C = 3, Y = 5, E = 3, T = 1),
+             y = c(C = 5, Y = 3, E = 1, T = 3))
+
+dagify(Y ~ T + C + E, T ~ C, E ~ T, outcome="Y", exposure = "E", latent="C",coords=coords) %>%
+  ggdag() %>%
+ggexport(filename="dag.png")
+
+
+
+
+#to draw
+draw <- tibble(yc=c(10:21), yc2=c(6:17), yc3=c(14:25),  ye=seq(12, 34, by=2), Year=c(2001:2012)) 
+
+theme_set(theme_minimal())
+
+rd <- ggplot() +
+  geom_line(data=filter(draw, Year>=2006), aes(Year, ye)) +
+  annotate(geom="text", label="Y(1)", x=2011, y=35) +
+  geom_line(data=filter(draw, Year<=2006), aes(Year, yc)) +
+  annotate(geom="text", label="Y(0)pre", x=2001.5, y=14) +
+  geom_line(data=filter(draw, Year>=2006), aes(Year, yc),linetype=2) +
+  annotate(geom="text", label="Y(0)", x=2011, y=23) +
+  geom_vline(xintercept = 2006, linetype=3) +
+  scale_x_continuous(breaks=2001:2012) +
+  scale_y_continuous(limits=c(0, 35), breaks=seq(0,35,5)) +
+  ylab("Y") +
+  labs(subtitle="Regression Discontinuity")
+
+its <- rd + labs(subtitle="Regression Discontinuity & Interrupted Time Series")
+its
+
+itscom <- rd + labs(subtitle="ITS with Control & Difference-in-Difference") +
+  geom_line(data=draw, aes(Year, yc2)) +
+  annotate(geom="text", label="Ycom(0)pre", x=2003, y=5) +
+  annotate(geom="text", label="Ycom(0)", x=2009, y=11) 
+itscom 
+ 
+
+
+syn <-ggplot() +   
+  geom_ribbon(data=draw, aes(x=Year,ymin=yc2, ymax=yc3), fill="grey90") +
+  geom_line(data=filter(draw, Year>=2006), aes(Year, ye)) +
+  annotate(geom="text", label="Y(1)", x=2011, y=35) +
+  geom_line(data=filter(draw, Year<=2006), aes(Year, yc)) +
+  annotate(geom="text", label="Y(0)pre", x=2003, y=10) +
+  geom_line(data=filter(draw, Year>=2006), aes(Year, yc),linetype=2) +
+  annotate(geom="text", label="Y(0)", x=2011, y=23) +
+  geom_vline(xintercept = 2006, linetype=3) +
+  scale_x_continuous(breaks=2001:2012) +
+  scale_y_continuous(limits=c(0, 35), breaks=seq(0,35,5)) +
+  ylab("Y") +
+  labs(subtitle="Synthetic Control")  
+
+syn
+
+combine <- ggarrange(its, itscom, syn,
+          labels = c("A", "B", "C"),
+          ncol = 1, nrow =3)
+
+ggexport(combine, filename="combine.png")
+
+
