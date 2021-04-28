@@ -1,0 +1,50 @@
+**Frank Popham - version as of 09/11/2017
+*contact frank.popham@glasgow.ac.uk
+*Stata Version 14.2
+*https://creativecommons.org/licenses/by/4.0/
+
+*use the downloaded data 
+import delimited N:\simpson.csv, delimiter(comma) clear
+*expand to make individual level dataset
+expand n
+*generate a constant
+gen cons= 1
+*confounder mbalance over exposure
+
+mean z
+
+mean z, over(x)
+
+*ipw
+
+logit x z
+predict p
+gen ipw = 1 / p if x==1
+replace ipw = 1 / (1-p) if x==0
+
+mean z [pweight=ipw], over(x)
+
+*matrix weight
+putmata X = (cons x z), replace
+mata
+W=invsym(quadcross(X, X))*X'
+
+W2=W'
+end
+
+getmata (M_cons M_x M_z)=W2, replace double
+
+mean z [pweight=abs(M_x)], over(x)
+
+*outcome
+regress y i.x [pweight=abs(M_x)],
+regress y i.x i.z, robust
+
+regress y i.x [pweight=(ipw)]
+
+*with interaction, let's change pop (note I use c. instead of i. just to trick stata to doing this)
+regress y i.x##c.z, robust
+*where outcome regression balances
+margins, dydx(x) at(z=.5188881)
+*where the ipw balances
+margins, dydx(x) at(z=.3846154)
